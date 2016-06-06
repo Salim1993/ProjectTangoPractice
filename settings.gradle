@@ -1,1 +1,2 @@
 include ':app', ':java_examples_utils'
+include ':openCVLibrary2411'

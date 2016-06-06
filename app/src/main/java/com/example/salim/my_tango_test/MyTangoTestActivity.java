@@ -4,6 +4,7 @@ import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MenuItem;
 import android.view.ViewGroup;
 
 import com.google.atap.tangoservice.Tango;
@@ -24,6 +25,19 @@ import com.projecttango.rajawali.DeviceExtrinsics;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+//OpenCV classes
+import org.opencv.android.JavaCameraView;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.Core;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.imgproc.Imgproc;
+
 /**
  * This is just test code to understand Rajawali and OpenGL, and how to
  * work with Google's project tango. Code used from Tango examples, specifically AugmentedReality example
@@ -31,12 +45,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Currently it doesn't do anything new or different compared to the Augmented reality example
  */
 
-public class MyTangoTestActivity extends AppCompatActivity {
-    private static final String TAG = MyTangoTestActivity.class.getSimpleName();
+public class MyTangoTestActivity extends AppCompatActivity implements CvCameraViewListener2 {
     private static final TangoCoordinateFramePair FRAME_PAIR = new TangoCoordinateFramePair(
             TangoPoseData.COORDINATE_FRAME_START_OF_SERVICE,
             TangoPoseData.COORDINATE_FRAME_DEVICE);
     private static final int INVALID_TEXTURE_ID = 0;
+
+    static{ System.loadLibrary("opencv_java"); }
 
     private RajawaliSurfaceView surface;
     private myRenderer mRenderer;
@@ -52,6 +67,21 @@ public class MyTangoTestActivity extends AppCompatActivity {
     private int mConnectedTextureIdGlThread = INVALID_TEXTURE_ID;
     private AtomicBoolean mIsFrameAvailableTangoThread = new AtomicBoolean(false);
     private double mRgbTimestampGlThread;
+
+    // Used for logging success or failure messages
+    private static final String TAG = "OCVSample::Activity";
+
+    // Loads camera view of OpenCV for us to use. This lets us see using OpenCV
+    private CameraBridgeViewBase mOpenCvCameraView;
+
+    // Used in Camera selection from menu (when implemented)
+    private boolean              mIsJavaCamera = true;
+    private MenuItem mItemSwitchCamera = null;
+
+    // These variables are used (at the moment) to fix camera orientation from 270degree to 0degree
+    Mat mRgba;
+    Mat mRgbaF;
+    Mat mRgbaT;
 
 
     @Override
@@ -88,6 +118,13 @@ public class MyTangoTestActivity extends AppCompatActivity {
             // Initialize Tango Service as a normal Android Service, since we call
             // mTango.disconnect() in onPause, this will unbind Tango Service, so
             // every time when onResume get called, we should create a new Tango object.
+            if (!OpenCVLoader.initDebug()) {
+                Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+                OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_11, this, mLoaderCallback);
+            } else {
+                Log.d(TAG, "OpenCV library found inside package. Using it!");
+                mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+            }
             mTango = new Tango(MyTangoTestActivity.this, new Runnable() {
                 // Pass in a Runnable to be called from UI thread when Tango is ready,
                 // this Runnable will be running on a new thread.
@@ -115,7 +152,10 @@ public class MyTangoTestActivity extends AppCompatActivity {
         // NOTE: DO NOT lock against this same object in the Tango callback thread. Tango.disconnect
         // will block here until all Tango callback calls are finished. If you lock against this
         // object in a Tango callback thread it will cause a deadlock.
-        synchronized (this) {
+        if (mOpenCvCameraView != null){
+            mOpenCvCameraView.disableView();
+        }
+        synchronized(this) {
             if (mIsConnected) {
                 mIsConnected = false;
                 mRenderer.getCurrentScene().clearFrameCallbacks();
@@ -179,6 +219,12 @@ public class MyTangoTestActivity extends AppCompatActivity {
         // to be done after connecting Tango and listeners.
         mExtrinsics = setupExtrinsics(mTango);
         mIntrinsics = mTango.getCameraIntrinsics(TangoCameraIntrinsics.TANGO_CAMERA_COLOR);
+    }
+
+    public void onDestroy() {
+        super.onDestroy();
+        if (mOpenCvCameraView != null)
+            mOpenCvCameraView.disableView();
     }
 
     /**
@@ -274,5 +320,37 @@ public class MyTangoTestActivity extends AppCompatActivity {
         TangoPoseData imuTdepthPose = tango.getPoseAtTime(0.0, framePair);
 
         return new DeviceExtrinsics(imuTdevicePose, imuTrgbPose, imuTdepthPose);
+    }
+
+    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS:
+                {
+                    Log.i(TAG, "OpenCV loaded successfully");
+                    mOpenCvCameraView.enableView();
+                } break;
+                default:
+                {
+                    super.onManagerConnected(status);
+                } break;
+            }
+        }
+    };
+
+    @Override
+    public void onCameraViewStarted(int width, int height) {
+
+    }
+
+    @Override
+    public void onCameraViewStopped() {
+
+    }
+
+    @Override
+    public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+        return null;
     }
 }
